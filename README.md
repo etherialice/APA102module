@@ -1,11 +1,11 @@
-#APA102module
-##Introduction
+# APA102module
+## Introduction
 This Python module was created to drive APA102 pixels on the Raspberry Pi. It may work on other devices, but is only guarenteed to work on a Raspberry Pi.
 I based this off of a similar library by tinue located [here](https://github.com/tinue/APA102_Pi)
 It functions almost exactly the same as tinue's library only it is more effecient due to being written in C instead of Python.
-##Setup
+## Setup
 tinue wrote a very in depth setup on his project, so I will just point to his
-##Migrating from tinue's code
+## Migrating from tinue's code
 If you are wanting to replace tinue's library with mine, you will only need to make a few changes to your code.
 The first is in the creation of the APA102 object. His code creates the SPI device by receiving the MOSI and MISO pins. To create an object in his code, you declare it like this: APA102(num_led, global_brightness, mosi, sclk, order)
 This library does note create the SPI device and instead requires you to pass in the write function upon creation like this: APA102(num_led, write_callback, global_brightness, order)
