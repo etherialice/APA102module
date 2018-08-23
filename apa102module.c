@@ -59,7 +59,28 @@ static PyTypeObject apa102_Type;
 
 #define apa102Object_Check(v)      (Py_TYPE(v) == &apa102_Type)
 
+//helper functions not for use in Python
+void set_pixel_internal(apa102Object *self, int led_num, byte r, byte g, byte b, byte bright_byte) {
+	byte *start_ptr = self->leds + (led_num * BYTES_PER_LED);
 
+	*(start_ptr) = bright_byte;
+	*(start_ptr + self->rgb[RED]) = r;
+	*(start_ptr + self->rgb[GRN]) = g;
+	*(start_ptr + self->rgb[BLU]) = b;
+}
+byte get_bright_byte(apa102Object *self, byte brightness) {
+	if (brightness >= MAX_BRIGHTNESS)
+		return (brightness & LED_BRIGHT_MASK) | LED_START;
+	else
+		return (((brightness * self->brightness) / MAX_BRIGHTNESS) & LED_BRIGHT_MASK) | LED_START;
+}
+void get_rgb_internal(int rgb, byte *r, byte *g, byte *b) {
+	*r = (rgb >> 16) & 255;
+	*g = (rgb >> 8) & 255;
+	*b = rgb & 255;
+}
+
+//Python functions:
 static int apa102_init (apa102Object *self, PyObject *args, PyObject *keywds){
 	
 	char *order = NULL;
@@ -148,17 +169,9 @@ static PyObject * apa102_set_pixel(apa102Object *self, PyObject *args, PyObject 
 	unsigned char r, g, b, led_brightness = MAX_BRIGHTNESS;
 	PyArg_ParseTupleAndKeywords(args, keywds, types, kwlist, &led_num, &r, &g, &b, &led_brightness);
 	
-	if (led_brightness > MAX_BRIGHTNESS)
-		led_brightness = MAX_BRIGHTNESS;
 	//if led_num is out of range, do nothing
-	if (led_num < self->num_led && led_num >= 0) {
-		byte *start_ptr = self->leds + (led_num * BYTES_PER_LED);
-		byte bright = (led_brightness * self->brightness) / 31;
-		*(start_ptr) = (bright & LED_BRIGHT_MASK) | LED_START;
-		*(start_ptr + self->rgb[RED]) = r;
-		*(start_ptr + self->rgb[GRN]) = g;
-		*(start_ptr + self->rgb[BLU]) = b;
-	}
+	if (led_num < self->num_led && led_num >= 0)
+		set_pixel_internal(self, led_num, r, g, b, get_bright_byte(self, led_brightness));
 	Py_RETURN_NONE;
 }
 PyDoc_STRVAR(apa102_set_pixel_rgb_doc,
@@ -174,24 +187,19 @@ static PyObject * apa102_set_pixel_rgb(apa102Object *self, PyObject *args, PyObj
 	unsigned char r, g, b, led_brightness = MAX_BRIGHTNESS;
 	PyArg_ParseTupleAndKeywords(args, keywds, types, kwlist, &led_num, &rgb, &led_brightness);
 	
-	
-	r = (rgb >> 16) & 255;
-	g = (rgb >> 8) & 255;
-	b = rgb & 255;
-	
-	
-	if (led_brightness > MAX_BRIGHTNESS)
-		led_brightness = MAX_BRIGHTNESS;
+	get_rgb_internal(rgb, &r, &g, &b);
 	//if led_num is out of range, do nothing
-	if (led_num < self->num_led && led_num >= 0) {
-		byte *start_ptr = self->leds + (led_num * BYTES_PER_LED);
-		byte bright = (led_brightness * self->brightness) / 31;
-		*(start_ptr) = (bright & LED_BRIGHT_MASK) | LED_START;
-		*(start_ptr + self->rgb[RED]) = r;
-		*(start_ptr + self->rgb[GRN]) = g;
-		*(start_ptr + self->rgb[BLU]) = b;
-	}
+	if (led_num < self->num_led && led_num >= 0)
+		set_pixel_internal(self, led_num, r, g, b, get_bright_byte(self, led_brightness));
 	Py_RETURN_NONE;
+}
+
+//to prevent repeating code:
+void set_range_internal(apa102Object *self, int start, int end, byte r, byte g, byte b, byte led_brightness) {
+	byte bright_byte = get_bright_byte(self, led_brightness);
+	for (int i = start; i < end; i++) {
+		set_pixel_internal(self, i, r, g, b, bright_byte);
+	}
 }
 
 PyDoc_STRVAR(apa102_set_range_doc,
@@ -207,21 +215,11 @@ static PyObject * apa102_set_range(apa102Object *self, PyObject *args, PyObject 
 	unsigned char r, g, b, led_brightness = MAX_BRIGHTNESS;
 	PyArg_ParseTupleAndKeywords(args, keywds, types, kwlist, &start, &end, &r, &g, &b, &led_brightness);
 	
-	if (led_brightness > MAX_BRIGHTNESS)
-		led_brightness = MAX_BRIGHTNESS;
 	//if start or end is out of range or start is before end. do nothing
 	if (start < 0 || end >= self->num_led || start > end)
 		Py_RETURN_NONE;
 	
-	byte bright_byte = (((led_brightness * self->brightness) / 31) & LED_BRIGHT_MASK) | LED_START;
-	byte *start_ptr;
-	for (int i = start; i < end; i++) {
-		start_ptr = self->leds + (i * BYTES_PER_LED);
-		*(start_ptr) = bright_byte;
-		*(start_ptr + self->rgb[RED]) = r;
-		*(start_ptr + self->rgb[GRN]) = g;
-		*(start_ptr + self->rgb[BLU]) = b;
-	}
+	set_range_internal(self, start, end, r, g, b, led_brightness);
 	
 	Py_RETURN_NONE;
 }
@@ -238,25 +236,13 @@ static PyObject * apa102_set_range_rgb(apa102Object *self, PyObject *args, PyObj
 	unsigned char r, g, b, led_brightness = MAX_BRIGHTNESS;
 	PyArg_ParseTupleAndKeywords(args, keywds, types, kwlist, &start, &end, &rgb, &led_brightness);
 	
-	if (led_brightness > MAX_BRIGHTNESS)
-		led_brightness = MAX_BRIGHTNESS;
 	//if start or end is out of range or start is before end. do nothing
 	if (start < 0 || end >= self->num_led || start > end)
 		Py_RETURN_NONE;
 	
-	r = (rgb >> 16) & 255;
-	g = (rgb >> 8) & 255;
-	b = rgb & 255;
+	get_rgb_internal(rgb, &r, &g, &b);
 	
-	byte bright_byte = (((led_brightness * self->brightness) / 31) & LED_BRIGHT_MASK) | LED_START;
-	byte *start_ptr;
-	for (int i = start; i < end; i++) {
-		start_ptr = self->leds + (i * BYTES_PER_LED);
-		*(start_ptr) = bright_byte;
-		*(start_ptr + self->rgb[RED]) = r;
-		*(start_ptr + self->rgb[GRN]) = g;
-		*(start_ptr + self->rgb[BLU]) = b;
-	}
+	set_range_internal(self, start, end, r, g, b, led_brightness);
 	
 	Py_RETURN_NONE;
 }
@@ -273,18 +259,7 @@ static PyObject * apa102_set_all(apa102Object *self, PyObject *args, PyObject *k
 	unsigned char r, g, b, led_brightness = MAX_BRIGHTNESS;
 	PyArg_ParseTupleAndKeywords(args, keywds, types, kwlist, &r, &g, &b, &led_brightness);
 	
-	if (led_brightness > MAX_BRIGHTNESS)
-		led_brightness = MAX_BRIGHTNESS;
-	
-	byte bright_byte = (((led_brightness * self->brightness) / 31) & LED_BRIGHT_MASK) | LED_START;
-	byte *start_ptr;
-	for (int i = 0; i < self->num_led; i++) {
-		start_ptr = self->leds + (i * BYTES_PER_LED);
-		*(start_ptr) = bright_byte;
-		*(start_ptr + self->rgb[RED]) = r;
-		*(start_ptr + self->rgb[GRN]) = g;
-		*(start_ptr + self->rgb[BLU]) = b;
-	}
+	set_range_internal(self, 0, self->num_led, r, g, b, led_brightness);
 	
 	Py_RETURN_NONE;
 }
@@ -301,22 +276,9 @@ static PyObject * apa102_set_all_rgb(apa102Object *self, PyObject *args, PyObjec
 	unsigned char r, g, b, led_brightness = MAX_BRIGHTNESS;
 	PyArg_ParseTupleAndKeywords(args, keywds, types, kwlist, &rgb, &led_brightness);
 	
-	r = (rgb >> 16) & 255;
-	g = (rgb >> 8) & 255;
-	b = rgb & 255;
-		
-	if (led_brightness > MAX_BRIGHTNESS)
-		led_brightness = MAX_BRIGHTNESS;
+	get_rgb_internal(rgb, &r, &g, &b);
 	
-	byte bright_byte = (((led_brightness * self->brightness) / 31) & LED_BRIGHT_MASK) | LED_START;
-	byte *start_ptr;
-	for (int i = 0; i < self->num_led; i++) {
-		start_ptr = self->leds + (i * BYTES_PER_LED);
-		*(start_ptr) = bright_byte;
-		*(start_ptr + self->rgb[RED]) = r;
-		*(start_ptr + self->rgb[GRN]) = g;
-		*(start_ptr + self->rgb[BLU]) = b;
-	}
+	set_range_internal(self, 0, self->num_led, r, g, b, led_brightness);
 	
 	Py_RETURN_NONE;
 }
@@ -326,11 +288,7 @@ PyDoc_STRVAR(apa102_clear_strip_doc,
 	"sets all pixels to black");
 static PyObject * apa102_clear_strip(apa102Object *self, PyObject *args)
 {
-	
-	for(int i = 0; i < self->num_led_array; i++) {
-		if (i % BYTES_PER_LED != 0)
-			*(self->leds+i) = 0;
-	}
+	set_range_internal(self, 0, self->num_led, 0, 0, 0, MAX_BRIGHTNESS);
 		
 	Py_RETURN_NONE;
 }
@@ -575,25 +533,6 @@ static PyObject * apa102_dump_array(apa102Object *self, PyObject *args) {
 		Py_RETURN_NONE;
 }
 
-static PyMethodDef apa102_methods[] = {
-	{"set_pixel",				(PyCFunction)apa102_set_pixel,				METH_VARARGS | METH_KEYWORDS,	apa102_set_pixel_doc},
-	{"set_pixel_rgb",			(PyCFunction)apa102_set_pixel_rgb,			METH_VARARGS | METH_KEYWORDS,	apa102_set_pixel_rgb_doc},
-	{"set_range",				(PyCFunction)apa102_set_range,				METH_VARARGS | METH_KEYWORDS,	apa102_set_range_doc},
-	{"set_range_rgb",			(PyCFunction)apa102_set_range_rgb,			METH_VARARGS | METH_KEYWORDS,	apa102_set_range_rgb_doc},
-	{"set_all",					(PyCFunction)apa102_set_all,				METH_VARARGS | METH_KEYWORDS,	apa102_set_all_doc},
-	{"set_all_rgb",				(PyCFunction)apa102_set_all_rgb,			METH_VARARGS | METH_KEYWORDS,	apa102_set_all_rgb_doc},
-	{"show",					(PyCFunction)apa102_show,					METH_VARARGS, 					apa102_show_doc},
-	{"clear_strip",				(PyCFunction)apa102_clear_strip,			METH_VARARGS,  					apa102_clear_strip_doc},
-	{"rotate",					(PyCFunction)apa102_rotate,					METH_VARARGS,  					apa102_rotate_doc},
-	{"get_pixel_color_str",		(PyCFunction)apa102_get_pixel_color_str,	METH_VARARGS,  					apa102_get_pixel_color_str_doc},
-	{"get_pixel_color_rgb",		(PyCFunction)apa102_get_pixel_color_rgb,	METH_VARARGS,  					apa102_get_pixel_color_rgb_doc},
-	{"get_pixel_color",			(PyCFunction)apa102_get_pixel_color,		METH_VARARGS,  					apa102_get_pixel_color_doc},
-	{"combine_color",			(PyCFunction)apa102_combine_color,			METH_VARARGS | METH_KEYWORDS,	apa102_combine_color_doc},
-	{"wheel",					(PyCFunction)apa102_wheel,					METH_VARARGS,					apa102_wheel_doc},
-	{"dump_array",				(PyCFunction)apa102_dump_array,				METH_VARARGS,					apa102_dump_array_doc},
-	{NULL, NULL, 0, NULL}           /* sentinel */
-};
-
 PyDoc_STRVAR(apa_num_led_var_doc, "the number of leds in this strip");
 static PyObject * apa102_get_num_led(apa102Object *self, void *closure)
 {
@@ -632,15 +571,9 @@ static PyObject * apa102_get_max_brightness(apa102Object *self, void *closure) {
 	return result;
 }
 
-static PyGetSetDef apa102_getset[] = {
-	{"num_led", 			(getter)apa102_get_num_led,				0,	apa_num_led_var_doc},
-	{"global_brightness",	(getter)apa102_get_global_brightness,	0,	apa_global_brightness_var_doc},
-	{"order", 				(getter)apa102_get_order,				0,	apa_order_var_doc},
-	{"write_callback",		(getter)apa102_get_write_callback,		0,	apa_write_callback_var_doc},
-	{"MAX_BRIGHTNESS", 		(getter)apa102_get_max_brightness,		0,	apa_max_brightness_var_doc},
-	{NULL},
-};
-
+//actual declarations at end of file so they are easier to find
+static PyMethodDef apa102_methods[];
+static PyGetSetDef apa102_getset[];
 
 static PyTypeObject apa102_Type = {
 	/* The ob_type field must be initialized in the module init function
@@ -687,7 +620,6 @@ static PyTypeObject apa102_Type = {
 	0,                          /*tp_free*/
 	0,                          /*tp_is_gc*/
 };
-
 
 static int apa102_exec(PyObject *m)
 {
@@ -750,3 +682,30 @@ PyInit_apa102(void)
 {
 	return PyModuleDef_Init(&apa102module);
 }
+
+static PyMethodDef apa102_methods[] = {
+	{"set_pixel",				(PyCFunction)apa102_set_pixel,				METH_VARARGS | METH_KEYWORDS,	apa102_set_pixel_doc},
+	{"set_pixel_rgb",			(PyCFunction)apa102_set_pixel_rgb,			METH_VARARGS | METH_KEYWORDS,	apa102_set_pixel_rgb_doc},
+	{"set_range",				(PyCFunction)apa102_set_range,				METH_VARARGS | METH_KEYWORDS,	apa102_set_range_doc},
+	{"set_range_rgb",			(PyCFunction)apa102_set_range_rgb,			METH_VARARGS | METH_KEYWORDS,	apa102_set_range_rgb_doc},
+	{"set_all",					(PyCFunction)apa102_set_all,				METH_VARARGS | METH_KEYWORDS,	apa102_set_all_doc},
+	{"set_all_rgb",				(PyCFunction)apa102_set_all_rgb,			METH_VARARGS | METH_KEYWORDS,	apa102_set_all_rgb_doc},
+	{"show",					(PyCFunction)apa102_show,					METH_VARARGS, 					apa102_show_doc},
+	{"clear_strip",				(PyCFunction)apa102_clear_strip,			METH_VARARGS,  					apa102_clear_strip_doc},
+	{"rotate",					(PyCFunction)apa102_rotate,					METH_VARARGS,  					apa102_rotate_doc},
+	{"get_pixel_color_str",		(PyCFunction)apa102_get_pixel_color_str,	METH_VARARGS,  					apa102_get_pixel_color_str_doc},
+	{"get_pixel_color_rgb",		(PyCFunction)apa102_get_pixel_color_rgb,	METH_VARARGS,  					apa102_get_pixel_color_rgb_doc},
+	{"get_pixel_color",			(PyCFunction)apa102_get_pixel_color,		METH_VARARGS,  					apa102_get_pixel_color_doc},
+	{"combine_color",			(PyCFunction)apa102_combine_color,			METH_VARARGS | METH_KEYWORDS,	apa102_combine_color_doc},
+	{"wheel",					(PyCFunction)apa102_wheel,					METH_VARARGS,					apa102_wheel_doc},
+	{"dump_array",				(PyCFunction)apa102_dump_array,				METH_VARARGS,					apa102_dump_array_doc},
+	{NULL, NULL, 0, NULL}           /* sentinel */
+};
+static PyGetSetDef apa102_getset[] = {
+	{"num_led", 			(getter)apa102_get_num_led,				0,	apa_num_led_var_doc},
+	{"global_brightness",	(getter)apa102_get_global_brightness,	0,	apa_global_brightness_var_doc},
+	{"order", 				(getter)apa102_get_order,				0,	apa_order_var_doc},
+	{"write_callback",		(getter)apa102_get_write_callback,		0,	apa_write_callback_var_doc},
+	{"MAX_BRIGHTNESS", 		(getter)apa102_get_max_brightness,		0,	apa_max_brightness_var_doc},
+	{NULL},
+};
